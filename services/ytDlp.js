@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import fs from "fs";
 
 // /**
 //  * Get metadata from yt-dlp
@@ -45,23 +46,22 @@ function getYtDlpMeta(url, extraArgs = []) {
 //  * @param {string} cookiesPath - Path to cookies.txt (optional)
 //  * @returns {Promise<string>} - Resolves with the final file path
 //  */
-function downloadYtAudio(url, outputDir, cookiesPath = null) {
+function downloadYtAudio(url, outputPath, cookiesPath = null) {
+  console.log("yt-dlp: ", url);
   return new Promise((resolve, reject) => {
-    // yt-dlp output template (id + title for uniqueness)
-    const outputTemplate = `${outputDir}/%(id)s.%(ext)s`;
-
+    const outputTemplate = `${outputPath}.%(ext)s`;
     const args = [
       "-x", // extract audio
       "--embed-metadata",
       "--no-embed-thumbnail",
+      url,
       "-o",
       outputTemplate, // output path template
     ];
-    if (cookiesPath) {
+
+    if (cookiesPath && fs.existsSync(cookiesPath)) {
       args.push("--cookies", cookiesPath);
     }
-    args.push(url);
-
     const ytdlp = spawn("yt-dlp", args);
 
     let stderr = "";
@@ -73,13 +73,11 @@ function downloadYtAudio(url, outputDir, cookiesPath = null) {
     });
 
     ytdlp.on("close", (code) => {
-      if (code !== 0) {
+      if (code !== 0)
         return reject(new Error(`yt-dlp failed (code ${code}): ${stderr}`));
-      }
-
       setTimeout(() => {
-        resolve("Done!");
-      }, 1000);
+        resolve({status: 201, expectedPath: `${outputPath}.opus`});
+      }, 2000);
     });
   });
 }

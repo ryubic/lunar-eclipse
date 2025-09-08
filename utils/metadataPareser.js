@@ -28,8 +28,6 @@ export async function parseAudioMetadata(filePath) {
       codec: metadata.format.codec || "Unknown",
       picture: metadata.common.picture?.[0] || null, // first album art
     };
-    console.log("audioMetadata: ",audioMetadata);
-    
     return audioMetadata;
   } catch (error) {
     throw new Error(error);

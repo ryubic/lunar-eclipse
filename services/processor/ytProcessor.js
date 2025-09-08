@@ -1,33 +1,15 @@
-// take userinput
-// query db for cache with url, forward file if cache hit
-// cache miss? fetch metadata and query db with postId
-// cache miss again?
-// download files
-// upload to telegram cache group
-// add file's data to mongoDB
-// forward to user
-// delete temp folder
-
 import fs from "fs";
 import path from "path";
 import { downloadYtAudio, getYtDlpMeta } from "../ytDlp.js";
 import YoutubeContentCache from "../../database/models/youtube.model.js";
 import { YT_TEMP_DIR_PATH, YT_COOKIES_PATH } from "../../constants.js";
-import { parseAudioMetadata } from "../../utils/metadataPareser.js";
+import { cacheAudioToGroup } from "../../utils/cacheToGroup.js";
 
 async function handelYtRequest(url, bot, userChatId, cacheChatId) {
-  // check db cache by url
-  let track = await YoutubeContentCache({ url });
-  if (track && track.telegramFileIds?.length > 0) {
-    await bot.sendAudio(userChatId, cacheChatId, track.telegramFileIds[0]);
-    return track;
-  }
-
-  // fetch metadata only if DB miss
+  let results = [];
   const meta = await getYtDlpMeta(url);
   if (meta._type === "playlist") {
-    // Playlist → loop entries
-    const results = [];
+    const meta = await getYtDlpMeta(url);
     for (const entry of meta.entries) {
       const t = await processSingleTrack(
         entry,
@@ -38,11 +20,16 @@ async function handelYtRequest(url, bot, userChatId, cacheChatId) {
       );
       results.push(t);
     }
-    return results;
   } else {
-    // Single track/video/short
-    return await processSingleTrack(meta, bot, userChatId, cacheChatId);
+    const singleTrack = await processSingleTrack(
+      meta,
+      bot,
+      userChatId,
+      cacheChatId
+    );
+    return results.push(singleTrack);
   }
+  return results;
 }
 
 async function processSingleTrack(
@@ -52,14 +39,17 @@ async function processSingleTrack(
   cacheChatId,
   playlistMeta = null
 ) {
-  const videoId = trackMeta.id;
   const url = trackMeta.webpage_url || trackMeta.url;
+  const videoId = trackMeta.id;
 
-  // check db again by videoID
+  // check db videoID
   let track = await YoutubeContentCache.findOne({ videoId });
   if (track && track.telegramFileIds?.length > 0) {
-    await bot.sendAudio(userChatId, track.telegramFileIds[0]);
-
+    await bot.sendAudio(
+      userChatId,
+      track.telegramFileIds[0],
+      track.telegramOptions
+    );
     // update playlist meta if applicable
     if (playlistMeta) {
       if (!track.playlistIds.includes(playlistMeta.id))
@@ -71,85 +61,58 @@ async function processSingleTrack(
     return track;
   }
 
-  // Download track
-  const tempDir = path.join(YT_TEMP_DIR_PATH, Date.now().toString());
-  const trackDir = path.join(
-    tempDir,
-    `${Date.now()}-${Math.floor(Math.random() * 10000)}`
+  // cache miss? Download track
+  fs.mkdirSync(YT_TEMP_DIR_PATH, { recursive: true });
+  let trackPath = path.join(
+    YT_TEMP_DIR_PATH,
+    `${userChatId}${Date.now()}${Math.floor(Math.random() * 10000)}`.toString()
   );
-  fs.mkdirSync(trackDir, { recursive: true });
 
+  let newCacheData;
   try {
     // download track to unique track dir
-    const result = await downloadYtAudio(url, trackDir, YT_COOKIES_PATH);
-    if (result !== "Done!") throw new Error("yt-dlp did not finish correctly");
+    const result = await downloadYtAudio(url, trackPath, YT_COOKIES_PATH);
+    if (result.status !== 201)
+      throw new Error("yt-dlp did not finish correctly");
 
-    // find downloaded file
-    const files = fs.readdirSync(trackDir);
-    const audioFile = files.find(
-      (f) => f.endsWith(".opus") || f.endsWith(".m4a")
+    newCacheData = await cacheAudioToGroup(
+      bot,
+      cacheChatId,
+      result.expectedPath
     );
-    if (!audioFile) throw new Error("No audio file found after download");
 
-    const filePath = path.join(trackDir, audioFile);
-
-    const audioMetadata = await parseAudioMetadata(filePath);
-    console.log(audioMetadata);
-    
-    const telegramOptions = {
-      title: audioMetadata.title,
-      performer: audioMetadata.artist,
-      duration: audioMetadata.duration,
-      contentType: audioMetadata.format
-        ? `audio/${audioMetadata.format.toLowerCase()}`
-        : "audio/mpeg",
-      caption: `Title: ${audioMetadata.title}\nArtist: ${
-        audioMetadata.artist
-      }\nAlbum: ${audioMetadata.album}\nYear: ${audioMetadata.year}\nCodec: ${
-        audioMetadata.codec || "Unknown"
-      }${
-        audioMetadata.bitrate
-          ? " | " + Math.round(audioMetadata.bitrate / 1000) + " kbps"
-          : ""
-      }`,
-    };
-
-    //  upload to Telegram cache
-    let fileId;
-    try {
-      const msg = await bot.sendAudio(
-        cacheChatId,
-        fs.createReadStream(filePath),
-        telegramOptions
+    if (!newCacheData)
+      console.log(newCacheData);
+      throw new Error(
+        
+        "cacheAudioToGroup function failed: failed to upload cache to group"
       );
-      console.log();
-      
-      fileId = msg.audio.file_id; // save Telegram file_id
-    } catch (err) {
-      throw new Error("Telegram upload failed: " + err.message);
-    }
 
     //  Only update DB if upload succeeded
     if (!track) {
       track = new YoutubeContentCache({
         url,
-        videoId, // replace with real videoId if available
+        videoId,
         title: trackMeta.title,
         thumbnailUrl: trackMeta.thumbnail || "",
-        type: "music",
-        telegramFileIds: [fileId],
+        type: "audio",
+        telegramFileIds: [newCacheData.audio.file_id],
         playlistIds: playlistMeta ? [playlistMeta.id] : [],
         playlistTitles: playlistMeta ? [playlistMeta.title] : [],
-        telegramOptions,
+        telegramOptions: newCacheData.telegramOptions,
       });
     } else {
-      track.telegramFileIds.push(fileId);
+      track.telegramFileIds.push(newCacheData.audio.file_id);
     }
     await track.save();
 
     // Forward to user
     try {
-      await bot.sendAudio(userChatId, fileId);
+      await bot.sendAudio(
+        userChatId,
+        newCacheData.audio.file_id,
+        newCacheData.telegramOptions
+      );
     } catch (err) {
       console.error("Failed to forward to user:", err.message);
     }
@@ -159,8 +122,11 @@ async function processSingleTrack(
     throw err; // propagate error if needed
   } finally {
     //  Cleanup
-    if (fs.existsSync(tempDir))
-      fs.rmSync(trackDir, { recursive: true, force: true });
+    try {
+      fs.unlinkSync(`${newCacheData.filePath}`);
+    } catch (err) {
+      console.error("Error deleting file:", err);
+    }
   }
 }
 

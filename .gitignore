@@ -1,7 +1,6 @@
 node_modules/
 dist/
-cookies/cookies_yt.txt
-cookies/cookies_ig.txt
+cookies/*
 .DS_Store
 .env
 *.log
@@ -10,3 +9,4 @@ coverage/
 .idea/
 *.sublime-workspace
 *.sublime-project
+trash.js

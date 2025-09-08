@@ -6,7 +6,7 @@ import { handelYtRequest } from "./services/processor/ytProcessor.js";
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CACHE_CHAT_ID = process.env.CACHE_CHAT_ID;
 
-connectDB()
+await connectDB()
   .then(() => console.log("MongoDB connected"))
   .catch((err) => console.error(err));
 
@@ -19,7 +19,7 @@ bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   bot.sendMessage(
     chatId,
-    "👋 Hello! Send me a YouTube URL and I’ll process it for you."
+    "Hello! Send me a YouTube URL and I will process it for you."
   );
 });
 
@@ -39,9 +39,10 @@ bot.on("message", async (msg) => {
   }
 
   try {
-    await bot.sendMessage(chatId, "Processing your YouTube link...");
+    const waitMsg = await bot.sendMessage(chatId, "Processing your YouTube link...");
     // Call your processor: track is the returned DB doc
     await handelYtRequest(text, bot, chatId, CACHE_CHAT_ID);
+    await bot.deleteMessage(chatId, waitMsg.message_id);
   } catch (err) {
     console.error("Processing error:", err);
     await bot.sendMessage(

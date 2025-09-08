@@ -2,7 +2,7 @@ import mongoose, { Schema } from "mongoose";
 
 const youtubeSchema = new Schema(
   {
-    url: { type: String, required: true, index: true },              
+    url: { type: String, required: true},              
     videoId: { type: String, required: true, unique: true, index: true }, 
     title: { type: String },                        
     thumbnailUrl: { type: String },
@@ -12,7 +12,7 @@ const youtubeSchema = new Schema(
     telegramOptions: { type: Schema.Types.Mixed },
 
     // Type of content
-    type: { type: String, enum: ["video", "music", "short"], default: "video" },
+    type: { type: String, enum: ["video", "audio", "short"], default: "video" },
 
     // Playlist/album info
     playlistIds: [{ type: String }],    
