@@ -39,7 +39,7 @@ async function processSingleTrack(
   cacheChatId,
   playlistMeta = null
 ) {
-  const url = trackMeta.webpage_url || trackMeta.url;
+  const url = trackMeta.original_url || trackMeta.webpage_url;
   const videoId = trackMeta.id;
 
   // check db videoID
@@ -82,9 +82,7 @@ async function processSingleTrack(
     );
 
     if (!newCacheData)
-      console.log(newCacheData);
       throw new Error(
-        
         "cacheAudioToGroup function failed: failed to upload cache to group"
       );
 

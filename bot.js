@@ -10,16 +10,17 @@ await connectDB()
   .then(() => console.log("MongoDB connected"))
   .catch((err) => console.error(err));
 
-const bot = new TelegramBot(BOT_TOKEN, { polling: true,   filepath: false, });
+const bot = new TelegramBot(BOT_TOKEN, { polling: true, filepath: false });
 
 console.log("Bot is running...");
 
 // /start command
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
+  // console.log(msg);
   bot.sendMessage(
     chatId,
-    "Hello! Send me a YouTube URL and I will process it for you."
+    "Hello! Send me a YouTube Music URL and I will process it for you."
   );
 });
 
@@ -39,15 +40,15 @@ bot.on("message", async (msg) => {
   }
 
   try {
-    const waitMsg = await bot.sendMessage(chatId, "Processing your YouTube link...");
+    const waitMsg = await bot.sendMessage(
+      chatId,
+      "Processing your YouTube link..."
+    );
     // Call your processor: track is the returned DB doc
     await handelYtRequest(text, bot, chatId, CACHE_CHAT_ID);
     await bot.deleteMessage(chatId, waitMsg.message_id);
   } catch (err) {
     console.error("Processing error:", err);
-    await bot.sendMessage(
-      chatId,
-      `Failed to process your track: ${err.message}`
-    );
+    await bot.sendMessage(chatId, "Failed to process your track");
   }
 });

@@ -1,49 +1,46 @@
 import { parseAudioMetadata } from "./metadataPareser.js";
 import fs from "fs";
 
-async function cacheAudioToGroup(bot, cacheGroupId, filePath) {  if (!fs.existsSync(filePath))
+async function cacheAudioToGroup(bot, cacheGroupId, filePath) {
+  if (!fs.existsSync(filePath))
     throw new Error(
       "error whille caching new audio file: file doesnt exist, yt-dlp failed or couldn't download the best audio"
     );
 
   const audioMetadata = await parseAudioMetadata(filePath);
-  console.log(audioMetadata);
 
   const options = {
     title: audioMetadata.title,
     performer: audioMetadata.artist,
     duration: audioMetadata.duration,
-    contentType: audioMetadata.format
-      ? `audio/${audioMetadata.format.toLowerCase()}`
-      : "audio/mpeg",
+    fileOptions: {
+      filename: audioMetadata.title,
+      contentType: `audio/${audioMetadata.format}`,
+    },
     caption: `Title: ${audioMetadata.title}\nArtist: ${
       audioMetadata.artist
     }\nAlbum: ${audioMetadata.album}\nYear: ${audioMetadata.year}\nCodec: ${
       audioMetadata.codec || "Unknown"
-    }${
-      audioMetadata.bitrate
-        ? " | " + audioMetadata.bitrate + " kbps"
-        : ""
-    }`,
+    }${audioMetadata.bitrate ? " | " + audioMetadata.bitrate + " kbps" : ""}`,
   };
 
   try {
     const message = await bot.sendAudio(
       cacheGroupId,
       fs.createReadStream(filePath),
-      options
+      options,
+      options.fileOptions
     );
-    console.log("bot.sendaudio returns: ", message);
     const newCacheData = {
       ...message,
       telegramOptions: options,
-      filePath
+      filePath,
     };
     return newCacheData;
   } catch (error) {
+    console.error("Upload error:", error.message); // log the real error
     throw new Error(
-      "ERROR: failed to upload audio to cache group whille caching new files",
-      error
+      "ERROR: failed to upload audio to cache group while caching new files"
     );
   }
 }

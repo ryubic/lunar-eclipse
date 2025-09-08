@@ -54,9 +54,9 @@ function downloadYtAudio(url, outputPath, cookiesPath = null) {
       "-x", // extract audio
       "--embed-metadata",
       "--no-embed-thumbnail",
-      url,
       "-o",
       outputTemplate, // output path template
+      url,
     ];
 
     if (cookiesPath && fs.existsSync(cookiesPath)) {
@@ -76,7 +76,7 @@ function downloadYtAudio(url, outputPath, cookiesPath = null) {
       if (code !== 0)
         return reject(new Error(`yt-dlp failed (code ${code}): ${stderr}`));
       setTimeout(() => {
-        resolve({status: 201, expectedPath: `${outputPath}.opus`});
+        resolve({ status: 201, expectedPath: `${outputPath}.opus` });
       }, 2000);
     });
   });
