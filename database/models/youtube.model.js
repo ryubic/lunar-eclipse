@@ -13,10 +13,7 @@ const youtubeSchema = new Schema(
 
     // Type of content
     type: { type: String, enum: ["video", "audio", "short"], default: "video" },
-
-    // Playlist/album info
-    playlistIds: [{ type: String }],    
-    playlistTitles: [{ type: String }], 
+    fileMetadata: {type: Schema.Types.Mixed},
 
     cachedAt: { type: Date, default: Date.now },
   },

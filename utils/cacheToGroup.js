@@ -8,20 +8,18 @@ async function cacheAudioToGroup(bot, cacheGroupId, filePath) {
     );
 
   const audioMetadata = await parseAudioMetadata(filePath);
-
   const options = {
     title: audioMetadata.title,
     performer: audioMetadata.artist,
     duration: audioMetadata.duration,
     fileOptions: {
-      filename: audioMetadata.title,
-      contentType: `audio/${audioMetadata.format}`,
+      filename: `${audioMetadata.title}.opus`,
+      contentType: `audio/${audioMetadata.format?.toLowerCase()}`,
     },
     caption: `Title: ${audioMetadata.title}\nArtist: ${
       audioMetadata.artist
     }\nAlbum: ${audioMetadata.album}\nYear: ${audioMetadata.year}\nCodec: ${
-      audioMetadata.codec || "Unknown"
-    }${audioMetadata.bitrate ? " | " + audioMetadata.bitrate + " kbps" : ""}`,
+      audioMetadata.codec || "Unknown"}\nBitrate: ${audioMetadata.bitrate + " kbps"}`,
   };
 
   try {
@@ -34,7 +32,7 @@ async function cacheAudioToGroup(bot, cacheGroupId, filePath) {
     const newCacheData = {
       ...message,
       telegramOptions: options,
-      filePath,
+      fileMetadata: audioMetadata,
     };
     return newCacheData;
   } catch (error) {

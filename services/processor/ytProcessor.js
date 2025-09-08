@@ -1,35 +1,46 @@
 import fs from "fs";
-import path from "path";
 import { downloadYtAudio, getYtDlpMeta } from "../ytDlp.js";
 import YoutubeContentCache from "../../database/models/youtube.model.js";
-import { YT_TEMP_DIR_PATH, YT_COOKIES_PATH } from "../../constants.js";
+import { TEMP_DIR_PATH, YT_COOKIES_PATH } from "../../constants.js";
 import { cacheAudioToGroup } from "../../utils/cacheToGroup.js";
+import path from "path";
 
 async function handelYtRequest(url, bot, userChatId, cacheChatId) {
   let results = [];
-  const meta = await getYtDlpMeta(url);
-  if (meta._type === "playlist") {
+  const tempDirPath = `${TEMP_DIR_PATH}/${userChatId}${Date.now()}`;
+  try {
     const meta = await getYtDlpMeta(url);
-    for (const entry of meta.entries) {
-      const t = await processSingleTrack(
-        entry,
+    if (meta._type === "playlist") {
+      for (const entry of meta.entries) {
+        const t = await processSingleTrack(
+          entry,
+          bot,
+          userChatId,
+          cacheChatId,
+          tempDirPath,
+          meta
+        );
+        results.push(t);
+      }
+    } else {
+      const singleTrack = await processSingleTrack(
+        meta,
         bot,
         userChatId,
         cacheChatId,
-        meta
+        tempDirPath
       );
-      results.push(t);
+      results.push(singleTrack);
     }
-  } else {
-    const singleTrack = await processSingleTrack(
-      meta,
-      bot,
-      userChatId,
-      cacheChatId
-    );
-    return results.push(singleTrack);
+
+    return results;
+  } catch (error) {
+    console.error("handelYtRequest failed:", error);
+  } finally {
+    if (tempDirPath && fs.existsSync(tempDirPath)) {
+      fs.rmSync(tempDirPath, { recursive: true, force: true });
+    }
   }
-  return results;
 }
 
 async function processSingleTrack(
@@ -37,6 +48,7 @@ async function processSingleTrack(
   bot,
   userChatId,
   cacheChatId,
+  tempDirPath,
   playlistMeta = null
 ) {
   const url = trackMeta.original_url || trackMeta.webpage_url;
@@ -50,36 +62,20 @@ async function processSingleTrack(
       track.telegramFileIds[0],
       track.telegramOptions
     );
-    // update playlist meta if applicable
-    if (playlistMeta) {
-      if (!track.playlistIds.includes(playlistMeta.id))
-        track.playlistIds.push(playlistMeta.id);
-      if (!track.playlistTitles.includes(playlistMeta.title))
-        track.playlistTitles.push(playlistMeta.title);
-      await track.save();
-    }
     return track;
   }
 
   // cache miss? Download track
-  fs.mkdirSync(YT_TEMP_DIR_PATH, { recursive: true });
-  let trackPath = path.join(
-    YT_TEMP_DIR_PATH,
-    `${userChatId}${Date.now()}${Math.floor(Math.random() * 10000)}`.toString()
-  );
+  fs.mkdirSync(tempDirPath, { recursive: true });
 
   let newCacheData;
+  const expectedTrackPath = path.join(tempDirPath, `${trackMeta.title}.opus`);
   try {
     // download track to unique track dir
-    const result = await downloadYtAudio(url, trackPath, YT_COOKIES_PATH);
+    const result = await downloadYtAudio(url, tempDirPath, YT_COOKIES_PATH);
     if (result.status !== 201)
       throw new Error("yt-dlp did not finish correctly");
-
-    newCacheData = await cacheAudioToGroup(
-      bot,
-      cacheChatId,
-      result.expectedPath
-    );
+    newCacheData = await cacheAudioToGroup(bot, cacheChatId, expectedTrackPath);
 
     if (!newCacheData)
       throw new Error(
@@ -95,9 +91,8 @@ async function processSingleTrack(
         thumbnailUrl: trackMeta.thumbnail || "",
         type: "audio",
         telegramFileIds: [newCacheData.audio.file_id],
-        playlistIds: playlistMeta ? [playlistMeta.id] : [],
-        playlistTitles: playlistMeta ? [playlistMeta.title] : [],
         telegramOptions: newCacheData.telegramOptions,
+        fileMetadata: newCacheData.fileMetadata,
       });
     } else {
       track.telegramFileIds.push(newCacheData.audio.file_id);
@@ -119,11 +114,8 @@ async function processSingleTrack(
     console.error("Error processing YouTube track:", err.message);
     throw err; // propagate error if needed
   } finally {
-    //  Cleanup
-    try {
-      fs.unlinkSync(`${newCacheData.filePath}`);
-    } catch (err) {
-      console.error("Error deleting file:", err);
+    if (expectedTrackPath && fs.existsSync(expectedTrackPath)) {
+      fs.rmSync(expectedTrackPath, { recursive: true, force: true });
     }
   }
 }

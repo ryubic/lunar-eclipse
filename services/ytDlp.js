@@ -46,10 +46,10 @@ function getYtDlpMeta(url, extraArgs = []) {
 //  * @param {string} cookiesPath - Path to cookies.txt (optional)
 //  * @returns {Promise<string>} - Resolves with the final file path
 //  */
-function downloadYtAudio(url, outputPath, cookiesPath = null) {
+function downloadYtAudio(url, tempDirPath, cookiesPath = null) {
   console.log("yt-dlp: ", url);
   return new Promise((resolve, reject) => {
-    const outputTemplate = `${outputPath}.%(ext)s`;
+    const outputTemplate = `${tempDirPath}/%(title)s.%(ext)s`;
     const args = [
       "-x", // extract audio
       "--embed-metadata",
@@ -76,7 +76,7 @@ function downloadYtAudio(url, outputPath, cookiesPath = null) {
       if (code !== 0)
         return reject(new Error(`yt-dlp failed (code ${code}): ${stderr}`));
       setTimeout(() => {
-        resolve({ status: 201, expectedPath: `${outputPath}.opus` });
+        resolve({ status: 201 });
       }, 2000);
     });
   });

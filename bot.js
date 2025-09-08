@@ -39,16 +39,18 @@ bot.on("message", async (msg) => {
     return;
   }
 
+  let waitMsg;
   try {
-    const waitMsg = await bot.sendMessage(
-      chatId,
-      "Processing your YouTube link..."
-    );
+    waitMsg = await bot.sendMessage(chatId, "Processing your YouTube link...");
     // Call your processor: track is the returned DB doc
     await handelYtRequest(text, bot, chatId, CACHE_CHAT_ID);
-    await bot.deleteMessage(chatId, waitMsg.message_id);
+    console.log("REQUEST FULFILLED: ", text);
+    bot.sendMessage(chatId, "Done!");
   } catch (err) {
     console.error("Processing error:", err);
-    await bot.sendMessage(chatId, "Failed to process your track");
+    console.log("REQUEST UNFULFILLED: ", text);
+    bot.sendMessage(chatId, "Failed to process your track");
+  } finally {
+    bot.deleteMessage(chatId, waitMsg.message_id);
   }
 });
