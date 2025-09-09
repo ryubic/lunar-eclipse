@@ -1,41 +1,48 @@
 import fs from "fs";
-import { downloadYtAudio, getYtDlpMeta } from "../ytDlp.js";
+import { downloadYtVideo, getYtDlpMeta } from "../ytDlp.js";
 import YoutubeContentCache from "../../database/models/youtube.model.js";
 import { TEMP_DIR_PATH, YT_COOKIES_PATH } from "../../constants.js";
-import { cacheAudioToGroup } from "../../utils/cacheToGroup.js";
-import path from "path";
+import { parseFile } from "music-metadata";
+import { getMetadataOptions } from "../../utils/metadataPareser.js";
 
-async function handelYtRequest(url, bot, userChatId, cacheChatId) {
+async function handelYtRequest(
+  url,
+  bot,
+  userChatId,
+  cacheChatId,
+  audioOnly = false
+) {
   let results = [];
   const tempDirPath = `${TEMP_DIR_PATH}/${userChatId}${Date.now()}`;
   try {
     const meta = await getYtDlpMeta(url);
     if (meta._type === "playlist") {
       for (const entry of meta.entries) {
-        const t = await processSingleTrack(
+        const t = await processSingleVideo(
           entry,
           bot,
           userChatId,
           cacheChatId,
           tempDirPath,
-          meta
+          audioOnly
         );
         results.push(t);
       }
     } else {
-      const singleTrack = await processSingleTrack(
+      const singleTrack = await processSingleVideo(
         meta,
         bot,
         userChatId,
         cacheChatId,
-        tempDirPath
+        tempDirPath,
+        audioOnly
       );
       results.push(singleTrack);
     }
 
     return results;
   } catch (error) {
-    console.error("handelYtRequest failed:", error);
+    throw error;
   } finally {
     if (tempDirPath && fs.existsSync(tempDirPath)) {
       fs.rmSync(tempDirPath, { recursive: true, force: true });
@@ -43,81 +50,78 @@ async function handelYtRequest(url, bot, userChatId, cacheChatId) {
   }
 }
 
-async function processSingleTrack(
+async function processSingleVideo(
   trackMeta,
   bot,
   userChatId,
   cacheChatId,
   tempDirPath,
-  playlistMeta = null
+  audioOnly
 ) {
   const url = trackMeta.original_url || trackMeta.webpage_url;
   const videoId = trackMeta.id;
-
   // check db videoID
-  let track = await YoutubeContentCache.findOne({ videoId });
-  if (track && track.telegramFileIds?.length > 0) {
-    await bot.sendAudio(
-      userChatId,
-      track.telegramFileIds[0],
-      track.telegramOptions
-    );
-    return track;
+  let video = await YoutubeContentCache.findOne({ videoId });
+  if (video && video.telegramFileIds?.length > 0) {
+    await bot.sendDocument(userChatId, video.telegramFileIds[0]);
+    return video;
   }
 
-  // cache miss? Download track
+  // cache miss? Download video/audio
   fs.mkdirSync(tempDirPath, { recursive: true });
+  let downloadedFilePath;
+  let newCache;
 
-  let newCacheData;
-  const expectedTrackPath = path.join(tempDirPath, `${trackMeta.title}.opus`);
   try {
     // download track to unique track dir
-    const result = await downloadYtAudio(url, tempDirPath, YT_COOKIES_PATH);
-    if (result.status !== 201)
-      throw new Error("yt-dlp did not finish correctly");
-    newCacheData = await cacheAudioToGroup(bot, cacheChatId, expectedTrackPath);
+    downloadedFilePath = await downloadYtVideo(
+      url,
+      tempDirPath,
+      YT_COOKIES_PATH,
+      audioOnly
+    );
+    if (!downloadedFilePath) throw new Error("yt-dlp did not finish correctly");
+    if (!fs.existsSync(downloadedFilePath))
+      throw new Error("unable to locate downloaded file");
 
-    if (!newCacheData)
-      throw new Error(
-        "cacheAudioToGroup function failed: failed to upload cache to group"
-      );
+    const metadata = await parseFile(downloadedFilePath);
+
+    newCache = await bot.sendDocument(
+      cacheChatId,
+      fs.createReadStream(downloadedFilePath)
+    );
+    if (!newCache.document) {
+      console.log(newCache);
+
+      throw new Error("unable to upload file to cache group");
+    }
 
     //  Only update DB if upload succeeded
-    if (!track) {
-      track = new YoutubeContentCache({
+    if (!video) {
+      video = new YoutubeContentCache({
         url,
         videoId,
         title: trackMeta.title,
         thumbnailUrl: trackMeta.thumbnail || "",
-        type: "audio",
-        telegramFileIds: [newCacheData.audio.file_id],
-        telegramOptions: newCacheData.telegramOptions,
-        fileMetadata: newCacheData.fileMetadata,
+        telegramFileIds: [newCache.document.file_id],
+        audioOnly,
+        metadata: metadata || {},
       });
     } else {
-      track.telegramFileIds.push(newCacheData.audio.file_id);
+      video.telegramFileIds.unshift(newCache.document.file_id);
     }
-    await track.save();
+    await video.save();
 
     // Forward to user
-    try {
-      await bot.sendAudio(
-        userChatId,
-        newCacheData.audio.file_id,
-        newCacheData.telegramOptions
-      );
-    } catch (err) {
-      console.error("Failed to forward to user:", err.message);
-    }
-    return track;
-  } catch (err) {
-    console.error("Error processing YouTube track:", err.message);
-    throw err; // propagate error if needed
+    await bot.sendDocument(userChatId, video.telegramFileIds[0]);
+    return video;
+  } catch (error) {
+    throw error;
   } finally {
-    if (expectedTrackPath && fs.existsSync(expectedTrackPath)) {
-      fs.rmSync(expectedTrackPath, { recursive: true, force: true });
+    if (downloadedFilePath && fs.existsSync(downloadedFilePath)) {
+      fs.rmSync(downloadedFilePath, { recursive: true, force: true });
     }
   }
 }
 
-export { processSingleTrack, handelYtRequest };
+export { processSingleVideo, handelYtRequest };
